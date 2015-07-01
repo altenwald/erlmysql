@@ -619,16 +619,11 @@ true
 
 Other operations under cursor are:
 
-**reset**
-    set cursor pointer to a beginnig of the cursor.
-**next**
-    move pointer to the next position.
-**set**
-    set pointer to given position.
-**skip**
-    skip a few position ahead.
-**back**
-    move pointer to the previous position.
+* **reset**: set cursor pointer to a beginnig of the cursor.
+* **next**: move pointer to the next position.
+* **set**: set pointer to given position.
+* **skip**: skip a few position ahead.
+* **back**: move pointer to the previous position.
 
 Let us investigate a 'foreach' function. The function returns list of values for given field from all rows in cursor: 
 
@@ -716,14 +711,10 @@ Function get_prepared_statement_handle returns handler of the prepared statement
 </div>
 We pass to connection:execute_statement/4 parameters:
 
-**Cntn -**
-    connection tuple,
-**H -**
-    statement handle
-**[8] -**
-    list of parameter types (in our case 8 - LONGLONG MySQL type)
-**[1] -**
-    list of parameter values (in our case 1 - id of desired table record)
+* **Cntn -** connection tuple,
+* **H -** statement handle
+* **[8] -** list of parameter types (in our case 8 - LONGLONG MySQL type)
+* **[1] -** list of parameter values (in our case 1 - id of desired table record)
 
 Result is first record of the table with "Alex" in 'name' field. MySQL server formats a rows of a result set in 
 different ways when responses on query or executes prepared statement. To make some order in types of data the Erlang 
@@ -914,7 +905,7 @@ ok
 ### Compression ###
 
 Compression protocol is supported if instance of MySQL supports it. To activate this feature set compress field in 
-#client_options record and pass the record to datasource definition when create new datasource object. 
+client_options record and pass the record to datasource definition when create new datasource object. 
 Then established connection allows to talk to server with compession. Tips: when we are using compression we win in 
 packets size but lost in processor time. Example of compressed connection establishment: 
 
