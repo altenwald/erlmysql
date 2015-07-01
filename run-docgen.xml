@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ====================================================================== 
+		Dec 1, 2010 3:32:42 PM
+
+		erl.mysql.client    
+		description
+
+		Alexei krasnopolski
+====================================================================== -->
+<project name="erl.mysql.client" default="default">
+	<description>
+		Ant script to run some maintanence tasks:
+			- document generating program
+	</description>
+	<!--property environment="env"/-->
+  <property file="${basedir}/build.properties"/>
+
+	<!--=================================
+				target: default
+			=================================-->
+	<target name="default" depends="" description="run doc generation">
+		<delete dir="${basedir}/doc" includes="*" />
+		<exec executable="${env.ERL_ROOT}/bin/erl" dir="${basedir}/ebin" >
+			<arg line="-noshell"/>
+			<arg line="-s c cd ${basedir}/ebin"/>
+			<arg line="-run doc gen ${basedir} ${version}"/> 
+<!--			
+			<arg line="-eval 'doc:gen(&#8220;C:\\ECLIPSE\\data\\workspace\\erl.mysql.client&#8221;).'"/> 
+			<arg line="-eval 'edoc:application(MySQL_Client, ${basedir}, [{overview, [${basedir}, /src/overview.edoc]}])'" />
+-->
+			<arg line="-s init stop"/>
+		</exec>
+		<copy file="${basedir}/priv/stylesheet.css" tofile="${basedir}/doc/stylesheet.css" overwrite="true"/>
+		<copy file="${basedir}/priv/example-erlMySQL.png" tofile="${basedir}/doc/example-erlMySQL.png" overwrite="true"/>
+		<copy file="${basedir}/priv/mySQL.png" tofile="${basedir}/doc/mySQL.png" overwrite="true"/>
+<!-- add sourceforge logo image-->
+		<replace dir="${basedir}/doc" includes="*.html">
+			<replacetoken><![CDATA[<td><a href="http://www.erlang.org/"><img src="erlang.png" align="right" border="0" alt="erlang logo"></a></td>]]></replacetoken>
+			<replacevalue><![CDATA[<td align="right"><a href="http://www.erlang.org/" style="display:block"><img src="erlang.png" border="0" alt="erlang logo"></a><a href="http://sourceforge.net/projects/erlmysql" style="display:block; margin-top:5px"><img src="http://sflogo.sourceforge.net/sflogo.php?group_id=394689&amp;type=8" width="80" height="15" alt="Get ErlMySQL at SourceForge.net. Fast, secure and Free Open Source software downloads" /></a></td>]]></replacevalue>
+		</replace>
+<!-- replace ugly code-->
+		<replace dir="${basedir}/doc" includes="*.html">
+			<replacetoken><![CDATA[�]]></replacetoken>
+			<replacevalue><![CDATA[&copy;]]></replacevalue>
+		</replace>
+    <replace dir="${basedir}/doc" includes="*.html">
+      <replacetoken><![CDATA[Copyright ?]]></replacetoken>
+      <replacevalue><![CDATA[Copyright &copy;]]></replacevalue>
+    </replace>
+		<replace dir="${basedir}/doc" includes="*.html">
+			<replacetoken><![CDATA[@nbsp;]]></replacetoken>
+			<replacevalue><![CDATA[&nbsp;]]></replacevalue>
+		</replace>
+<!-- add meta tags -->
+	  <replace dir="${basedir}/doc" includes="*.html">
+			<replacetoken><![CDATA[<title>]]></replacetoken>
+			<replacevalue><![CDATA[<meta name="keywords" content="Erlang, MySQL, client, native, driver." />
+<meta name="description" content="The MySQL standalone client for Erlang is using a native, low level MySQL client/server communication protocol." />
+<title>]]></replacevalue>
+		</replace>
+	</target>
+
+</project>

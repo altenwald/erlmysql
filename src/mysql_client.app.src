@@ -1,0 +1,28 @@
+{	application, mysql_client,
+	[
+    {description, "MySQL native client"},
+    {vsn, "1.2.8"},
+    {modules, [
+        my,
+        datasource,
+        resource_pool_srv,
+        resource_factory,
+        connection,
+        conn_srv,
+        packet_parser_binary,
+        packet_parser,
+        packet_response,
+        packet_parser_string,
+        io_socket,
+        io_send_cmd,
+        helper_statement,
+        helper_connection,
+        helper_common
+      ]
+    },
+    {registered, [datasource_sup]},
+    {applications, [kernel, stdlib]},
+    {mod, {my, []}},
+    {env, []}
+	]
+}.

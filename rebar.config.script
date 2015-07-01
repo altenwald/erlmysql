@@ -1,0 +1,12 @@
+{ok, Dir} = file:get_cwd(),
+%% io:format(user, "Dir = ~p~n", [Dir]),
+CONFIG ++ [{edoc_opts, [
+  {def, [{version, "1.2.8"}]},
+  {source_path, [[Dir, "/examples/"]]},
+  {private, false},
+  {title, "MySQL client for Erlang"}, 
+  {overview, [Dir, "/src/overview.edoc"]}, 
+  {sort_functions, false}, 
+  {stylesheet_file, [Dir,"/priv/my.css"]}, 
+  {includes, [[Dir,"/include/"]]}
+]}].

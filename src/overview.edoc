@@ -1,0 +1,978 @@
+%%
+%% Copyright (C) 2010-2014 by krasnop@bellsouth.net (Alexei Krasnopolski)
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License. 
+%%
+
+@author Alexei Krasnopolski <krasnop@bellsouth.net> [http://krasnopolski.org]
+@copyright 2010-2014 Alexei Krasnopolski
+@doc 
+<h3>Introduction</h3>
+The client allows to connect to MySQL server and execute SQL query. It provides connection pooling 
+mechanizm for concurrency efficience.
+The client is written on Erlang and very closely follows MySQL Connector/C interface. 
+It can be called MySQL Connector/Erlang but has some restrictions in functionality (recent version has no SSL support).
+Design is based on protocol description from [http://mysql.timesoft.cc/doc/internals/en/index.html].
+The client was tested on MySQL server version 5.1.51, 5.5.9 and 5.6.2 on Windows/Linux/MacOSX boxes.
+
+<h3>Architecture</h3>
+MySQL client is an OTP application. Top level component is datasource supervisor (<code>datasource_sup</code> Erlang module)
+that is monitoring a child datasource processes (datasource is a connection pool in other words). Each datasource 
+(or connection pool) is managing of a set of connection processes (generic services). Connection pool keeps 
+reusable connection processes that can be retrived and returned by client software. Structure of the application
+is shown on figure below. The client is using external Erlang Resource Pool project [https://sourceforge.net/projects/erlpool] for
+connection pool implementation with customized connection_factory.erl.
+<p><img src="mySQL.png" /></p>
+<ul>
+<li><b>mysql client</b> - OTP application that combines application and supervisor behaviour.
+The supervisor is managing a numbers of datasource processes. It implements a functionality to create 
+new or delete existed datasources.
+</li>
+<li><b>datasource module</b> - contains connection pool process (gen_server) that is managing a few connection processes.
+The <code>datasource</code> module can manipulate underlying resource (connection) pool.
+The pool helps to reuse opened connection objects. Connection pool is automatically created when datasource is initialized.
+</li>
+<li><b>connection</b> - generic server process that incapsulates all functionality concerned connection to DB, quering,
+ prepared statement operations and so on.</li>
+</ul>
+<h3>Getting started</h3>
+To start with the client you have to complete at least first two steps below:
+<ol>
+<li>Install MySQL [http://dev.mysql.com/downloads].</li>
+<li>Install Erlang [http://www.erlang.org/download.html].</li>
+<li>Install Eclipse IDE [http://www.eclipse.org/] with Erlide plugin [http://erlide.sourceforge.net/]. This is optional. 
+But I am doing developing of the software using these wonderful tools and highly recommend ones.</li>
+<li>Install OpenSSL framework (If your workstation does not have it yet) [http://www.openssl.org/] because Erlang <code>crypto</code> 
+is depended on the library. Commonly OpenSSL is already installed in Linux hosts.</li>
+</ol>
+Next step is running the examples. Suppose you install MySQL server as 'localhost' that opened 3306 port for listening a TCP/IP connections from clients.
+You have to adjust root user account: set 'root'@'localhost' with 'root' password and create account 'user'@'localhost'/'user'.
+I will not teach you how using Erlang, just remind you:
+<ul>
+<li>You have to use Rebar to build project.
+ Issue command <code>rebar clean get-deps compile</code>.</li>
+<li>Start Erlang shell.</li>
+<li>Set up current directory with eshell command <code>c:cd(".../ebin")</code>.</li>
+<li>Add path for dependency <code>code:add_path(".../deps/rsrc_pool/ebin")</code>.</li>
+</ul>
+<pre>
+1> <span>c:cd("/home/alexei/eclipse-workspace/erl.mysql.client/ebin").</span>
+/home/alexei/eclipse-workspace/erl.mysql.client/ebin
+ok
+2> <span>code:add_path("/home/alexei/eclipse-workspace/erl.mysql.client/deps/rsrc_pool/ebin").</span>
+true
+</pre>
+
+Now we can issue commands for MySQL server. First at all we need to start application
+'mysql_client' that represents describing client.
+<pre>
+2> <span>my:start_client().</span>
+ok
+</pre> 
+Next step is a creating of datasource process with associated connection pool. First lets
+create description of our datasource.
+Load records definitions to console environment to make our next steps more clear:
+<pre>
+3> <span>rr(".././include/client_records.hrl").</span>
+[client_options,connection,datasource,eof_packet,
+ error_packet,field_metadata,metadata,mysql_decimal,
+ mysql_error,mysql_time,ok_packet,ok_stmt_packet,packet,
+ rs_header,server_info,server_status]
+</pre> 
+Assign record #datasource{} to DS_def value:
+<pre>
+4> <span>DS_def = #datasource{</span>
+4> <span>host = "localhost",</span> 
+4> <span>port = 3306,</span>
+4> <span>database = "",</span>
+4> <span>user = "root",</span>
+4> <span>password = "root"}.</span>
+#datasource{name = undefined,host = "localhost",port = 3306,
+            database = [],user = "root",password = "root",
+            flags = #client_options{charset_number = 33,
+                                    long_password = 1,found_rows = 0,
+                                    long_flag = 1,connect_with_db = 1,
+                                    no_schema = 0,compress = 0,odbc = 0,
+                                    local_files = 0,ignore_space = 0,
+                                    protocol_41 = 1,interactive = 1,ssl = 0,
+                                    ignore_sigpipe = 0,transactions = 1,
+                                    reserved = 0,secure_connection = 1,
+                                    multi_statements = 1,multi_results = 1,
+                                    trans_isolation_level = default}}
+</pre>
+And finally create new datasource object:
+<pre>
+5> <span>my:new_datasource(data_source, DS_def).</span>
+`{ok,<0.46.0>}'
+</pre>
+We have now datasource named 'data_source' that we can use for connecting to DB.
+Lets establish a connection to the server:
+
+<pre>
+6> <span>Cntn = datasource:get_connection(data_source).</span>
+`<0.48.0>'
+</pre>
+
+Command above retrives connection from pool and if connection pool has no idle connection then connection
+factory creates new one. We can check obtained connection:
+<pre>
+7> <span>connection:connection_record(Cntn).</span>
+`#connection{
+    socket = #Port<0.668>,
+    ds_def = 
+        #datasource{
+            name = data_source,host = "localhost",port = 3306,
+            database = [],user = "root",password = "root",
+            flags = 
+                #client_options{
+                    charset_number = 33,long_password = 1,found_rows = 0,
+                    long_flag = 1,connect_with_db = 1,no_schema = 0,
+                    compress = 0,odbc = 0,local_files = 0,ignore_space = 0,
+                    protocol_41 = 1,interactive = 1,ssl = 0,
+                    ignore_sigpipe = 0,transactions = 1,reserved = 0,
+                    secure_connection = 1,...}},
+    server_info = 
+        #server_info{
+            protocol_version = 10,server_version = "5.1.60",
+            thread_Id = 97,
+            server_capabilities = 
+                #client_options{
+                    charset_number = 8,long_password = 1,found_rows = 1,
+                    long_flag = 1,connect_with_db = 1,no_schema = 1,
+                    compress = 1,odbc = 1,local_files = 1,ignore_space = 1,
+                    protocol_41 = 1,interactive = 1,ssl = 0,
+                    ignore_sigpipe = 1,transactions = 1,reserved = 0,
+                    secure_connection = 1,multi_statements = 0,
+                    multi_results = 0,...},
+            server_status = 
+                #server_status{
+                    inTransaction = false,autocommit = true,
+                    moreResultExists = false,queryNoGoodIndexUsed = false,
+                    queryNoIndexUsed = false,cursorExists = false,
+                    lastRowSent = false,dbDropped = false,
+                    noBackSlashEscapes = false,metadataChanged = false,
+                    queryWasSlow = false,psOutParams = false},
+            scramble_buff = <<"Kw8M[aVj2ZO[^G&&+F]$">>}}'
+</pre>
+
+Please, see client_records.hrl file to interpret content of returned 'connection' record.
+You can use value of Cntn for further work. To create database named 'testDB' issue a command:
+
+<pre>
+8> <span>connection:execute_query(Cntn, "CREATE DATABASE IF NOT EXISTS testDB").</span>
+`{#metadata{
+     field_count = 0,param_count = 0,
+     server_status = 
+         #server_status{
+             inTransaction = false,autocommit = true,
+             moreResultExists = false,queryNoGoodIndexUsed = false,
+             queryNoIndexUsed = false,cursorExists = false,
+             lastRowSent = false,dbDropped = false,
+             noBackSlashEscapes = false,metadataChanged = false,
+             queryWasSlow = false,psOutParams = false},
+     field_metadata = [],param_metadata = []},
+ [#ok_packet{
+      affected_rows = 1,insert_id = 0,
+      server_status = 
+          #server_status{
+              inTransaction = false,autocommit = true,
+              moreResultExists = false,queryNoGoodIndexUsed = false,
+              queryNoIndexUsed = false,cursorExists = false,
+              lastRowSent = false,dbDropped = false,
+              noBackSlashEscapes = false,metadataChanged = false,
+              queryWasSlow = false,psOutParams = false},
+      warning_count = 0,message = []}]}'
+</pre>
+
+Now your MySQL server has 'testDB' database. Next step is a table creating.
+<pre>
+
+9> <span>connection:execute_query(Cntn,</span> 
+9> <span>"CREATE TABLE testDB.sample_table (id bigint(20) NOT NULL AUTO_INCREMENT,</span> 
+9> <span> name varchar(45) DEFAULT NULL, age int(10) DEFAULT 21,</span> 
+9> <span> longtext_col longtext, PRIMARY KEY (id))</span> 
+9> <span> ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8").</span>
+`{#metadata{
+     field_count = 0,param_count = 0,
+     server_status = 
+         #server_status{
+             inTransaction = false,autocommit = true,
+             moreResultExists = false,queryNoGoodIndexUsed = false,
+             queryNoIndexUsed = false,cursorExists = false,
+             lastRowSent = false,dbDropped = false,
+             noBackSlashEscapes = false,metadataChanged = false,
+             queryWasSlow = false,psOutParams = false},
+     field_metadata = [],param_metadata = []},
+ [#ok_packet{
+      affected_rows = 0,insert_id = 0,
+      server_status = 
+          #server_status{
+              inTransaction = false,autocommit = true,
+              moreResultExists = false,queryNoGoodIndexUsed = false,
+              queryNoIndexUsed = false,cursorExists = false,
+              lastRowSent = false,dbDropped = false,
+              noBackSlashEscapes = false,metadataChanged = false,
+              queryWasSlow = false,psOutParams = false},
+      warning_count = 0,message = []}]}'
+</pre>
+
+You can insert now some data rows into table 'sample_table':
+<pre>
+10> <span>connection:execute_query(Cntn,</span>
+10> <span>"INSERT INTO testDB.sample_table(name) VALUES ('Alex'), ('John')").</span>
+`{#metadata{
+     field_count = 0,param_count = 0,
+     server_status = 
+         #server_status{
+             inTransaction = false,autocommit = true,
+             moreResultExists = false,queryNoGoodIndexUsed = false,
+             queryNoIndexUsed = false,cursorExists = false,
+             lastRowSent = false,dbDropped = false,
+             noBackSlashEscapes = false,metadataChanged = false,
+             queryWasSlow = false,psOutParams = false},
+     field_metadata = [],param_metadata = []},
+ [#ok_packet{
+      affected_rows = 2,insert_id = 1,
+      server_status = 
+          #server_status{
+              inTransaction = false,autocommit = true,
+              moreResultExists = false,queryNoGoodIndexUsed = false,
+              queryNoIndexUsed = false,cursorExists = false,
+              lastRowSent = false,dbDropped = false,
+              noBackSlashEscapes = false,metadataChanged = false,
+              queryWasSlow = false,psOutParams = false},
+      warning_count = 0,
+      message = "&Records: 2  Duplicates: 0  Warnings: 0"}]}'
+</pre>
+
+And finally you can select a rows from the table:
+<pre>
+11> <span>connection:execute_query(Cntn, "SELECT * FROM testDB.sample_table").</span>
+`{#metadata{
+     field_count = 4,param_count = 0,
+     server_status = 
+         #server_status{
+             inTransaction = false,autocommit = true,
+             moreResultExists = false,queryNoGoodIndexUsed = false,
+             queryNoIndexUsed = true,cursorExists = false,
+             lastRowSent = false,dbDropped = false,
+             noBackSlashEscapes = false,metadataChanged = false,
+             queryWasSlow = false,psOutParams = false},
+     field_metadata = 
+         [#field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "id",origname = "id",
+              charsetnr = 63,length = 20,type = 8,
+              flags = <<3,66>>,
+              scale = 0,default = []},
+          #field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "name",origname = "name",
+              charsetnr = 33,length = 135,type = 253,
+              flags = <<0,0>>,
+              scale = 0,default = []},
+          #field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "age",origname = "age",
+              charsetnr = 63,length = 10,type = 3,
+              flags = <<0,0>>,
+              scale = 0,default = []},
+          #field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "longtext_col",
+              origname = "longtext_col",charsetnr = 33,
+              length = 4294967295,type = 252,
+              flags = <<16,0>>,
+              scale = 0,default = []}],
+     param_metadata = []},
+ [[1,"Alex",21,null],[2,"John",21,null]]}'
+</pre>
+
+<h3>How interpret response</h3>
+
+Allmost all functions of <code>connection</code>code> module returns a tuple that we can describe as mysql_response type:
+<pre>
+mysql_response = {metadata(), result()},
+
+Where
+
+metadata() = #metadata{
+	field_count = integer(), 
+	server_status = list(#server_status{}), 
+	field_metadata = list(#field_metadata{})
+},
+
+result() = [] | [E#ok_packet{}] | [E#ok_stmt_packet{}] | list(rowdata()),
+
+rowdata() = list(field_value()),
+
+field_value() = integer() | float() | string() | binary() | #mysql_time{} | #mysql_decimal{}
+
+</pre>
+First element of the tuple is metadata record (see client_records.hrl), that keeps an information about fields involved in the SQL query.
+Second element is a list of result rows of query or command. 
+Some commands return empty list of result or list of the single element (ok_packet or ok_stmt_packet).
+Other commands return list of rows of rowdata() type each of these in own turn is a list of field values (field_value() type).
+Lets investigate the result of last query more carefully. After some formating it will look like: 
+<pre>
+`{
+  #metadata{
+    field_count = 4,
+    param_count = 0,
+    server_status = #server_status{
+      inTransaction = false,
+      autocommit = true,
+      moreResultExists = false,
+      queryNoGoodIndexUsed = false,
+      queryNoIndexUsed = true,
+      cursorExists = false,
+      lastRowSent = false,
+      dbDropped = false,
+      noBackSlashEscapes = false,
+      metadataChanged = false,
+      queryWasSlow = false,
+      psOutParams = false
+    },
+    field_metadata = [
+      #field_metadata{
+        catalog = "def",
+        schema = "testDB",
+        table = "sample_table",
+        origtable = "sample_table",
+        name = "id",
+        origname = "id",
+        charsetnr = 63,
+        length = 20,
+        type = 8,
+        flags = <<3,66>>,
+        scale = 0,
+        default = []
+      },
+      #field_metadata{
+        catalog = "def",
+        schema = "testDB",
+        table = "sample_table",
+        origtable = "sample_table",
+        name = "name",
+        origname = "name",
+        charsetnr = 33,
+        length = 135,
+        type = 253,
+        flags = <<0,0>>,
+        scale = 0,
+        default = []
+      },
+      #field_metadata{
+        catalog = "def",
+        schema = "testDB",
+        table = "sample_table",
+        origtable = "sample_table",
+        name = "age",
+        origname = "age",
+        charsetnr = 63,
+        length = 10,
+        type = 3,
+        flags = <<0,0>>,
+        scale = 0,
+        default = []
+      },
+      #field_metadata{
+        catalog = "def",
+        schema = "testDB",
+        table = "sample_table",
+        origtable = "sample_table",
+        name = "longtext_col",
+        origname = "longtext_col",
+        charsetnr = 33,
+        length = 4294967295,
+        type = 252,
+        flags = <<16,0>>,
+        scale = 0,
+        default = []
+      }
+    ],
+    param_metadata = []
+  },
+  [
+    [1,"Alex",21,null],
+    [2,"John",21,null]
+  ]
+}'
+</pre>
+We can see that the query returns two rows each of these contains four fields: values of 'id' = 1,2;
+values of 'name' field = "Alex","John"; values of 'age' = 21,21 and 'longtext_col' = null, null. Also the query
+returns a whole description of each fields in records named 'field_metadata'.
+
+How extract the value we need? It is easy. Suppose we need value of second column 'name' from second row of the query result
+<pre>
+12> <span>{_, Rows} = connection:execute_query(Cntn, "SELECT * FROM testDB.sample_table").</span>
+`{#metadata{
+     field_count = 4,param_count = 0,
+     server_status = 
+         #server_status{
+             inTransaction = false,autocommit = true,
+             moreResultExists = false,queryNoGoodIndexUsed = false,
+             queryNoIndexUsed = true,cursorExists = false,
+             lastRowSent = false,dbDropped = false,
+             noBackSlashEscapes = false,metadataChanged = false,
+             queryWasSlow = false,psOutParams = false},
+     field_metadata = 
+         [#field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "id",origname = "id",
+              charsetnr = 63,length = 20,type = 8,
+              flags = <<3,66>>,
+              scale = 0,default = []},
+          #field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "name",origname = "name",
+              charsetnr = 33,length = 135,type = 253,
+              flags = <<0,0>>,
+              scale = 0,default = []},
+          #field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "age",origname = "age",
+              charsetnr = 63,length = 10,type = 3,
+              flags = <<0,0>>,
+              scale = 0,default = []},
+          #field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "longtext_col",
+              origname = "longtext_col",charsetnr = 33,
+              length = 4294967295,type = 252,
+              flags = <<16,0>>,
+              scale = 0,default = []}],
+     param_metadata = []},
+ [[1,"Alex",21,null],[2,"John",21,null]]}'
+13> <span>Rows.</span>
+[[1,"Alex",21,null],[2,"John",21,null]]
+14> <span>[_,{rs_row_data,Row}] = Rows.</span>
+[[1,"Alex",21,null],[2,"John",21,null]]
+15> <span>Row.</span>
+[2,"John",21,null]
+16> <span>[_,Name] = Row.</span>
+[2,"John",21,null]
+17> <span>Name.</span>
+"John"
+</pre>
+Note that MySQL server returns result set fields as a strings and the client is trying to convert 
+them to proprietary Erlang types. Possible convertions are shown in Table 1 below.  
+
+<h3>Cursor (client side)</h3>
+
+<p>Cursor is utility to help manipulate of result set data retrieved from DB server. Cursor is implemented as a process 
+(you can think about the cursor as an object).
+This is more convenient way to retrieve data from response. We can create cursor object from response data on client side
+and use this cursor to navigate through set of records and fields.
+<pre>
+18> <span>Response = connection:execute_query(Cntn, "SELECT * FROM testDB.sample_table").</span>
+{#metadata{ 
+  ... output is skipped ...},
+[[1,"Alex",21,null],[2,"John",21,null]]}
+19> <span>Cursor = cursor:new(Response).</span>
+`<0.77.0>'
+</pre>
+To navigate to next row we have to call cursor:next function or set desired index of row.
+<pre>
+20> <span>cursor:next(Cursor).</span> %% step forward
+true
+21> <span>cursor:set(Cursor, 1).</span> %% set on cursor beginning
+true
+</pre>
+Now we can get value of a field:
+<pre>
+22> <span>Name1 = cursor:get(Cursor, "name").</span>
+"Alex"
+23> <span>Age1 = cursor:get(Cursor, "age").</span>
+21
+</pre>
+Move to next row and get a field by index in current row:
+<pre>
+25> <span>cursor:next(Cursor).</span>
+true
+26> <span>Name2 = cursor:get(Cursor, 2).</span>
+"John"
+</pre>
+Other operations under cursor are:
+<dl>
+  <dt>reset</dt><dd>set cursor pointer to a beginnig of the cursor.</dd>
+  <dt>next</dt><dd>move pointer to the next position.</dd>
+  <dt>set</dt><dd>set pointer to given position.</dd>
+  <dt>skip</dt><dd>skip a few position ahead.</dd>
+  <dt>back</dt><dd>move pointer to the previous position.</dd>
+</dl>
+Let us investigate a 'foreach' function.
+The function returns list of values for given field from all rows in cursor:
+<pre>
+19> <span>cursor:foreach(Cursor, "name").</span>
+["Alex","John"]
+</pre>
+Cursor object owns to process created it. Other processes cannot access the cursor so cursor cannot be used concurrently.
+
+<h3>Prepared statements</h3>
+
+MySQL client protocol allows to define prepared statements: SQL query with placeholder (?) for parameters 
+and using this prepared statement for querying of the server farther.
+The simple example of a prepared statement is here:
+<pre>
+19><span>H = connection:get_prepared_statement_handle(Cntn, "SELECT * FROM testDB.sample_table WHERE id = ?").</span>
+1
+</pre>
+Function get_prepared_statement_handle returns handler of the prepared statement we will use in next operations.
+Now let's try to execute this prepared statement.
+<pre>
+20><span>{_,[R|_]} = connection:execute_statement(Cntn, H, [8], [1]).</span>
+`{#metadata{
+     field_count = 4,param_count = 0,
+     server_status = 
+         #server_status{
+             inTransaction = false,autocommit = true,
+             moreResultExists = false,queryNoGoodIndexUsed = false,
+             queryNoIndexUsed = false,cursorExists = false,
+             lastRowSent = false,dbDropped = false,
+             noBackSlashEscapes = false,metadataChanged = false,
+             queryWasSlow = false,psOutParams = false},
+     field_metadata = 
+         [#field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "id",origname = "id",
+              charsetnr = 63,length = 20,type = 8,
+              flags = <<3,66>>,
+              scale = 0,default = []},
+          #field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "name",origname = "name",
+              charsetnr = 33,length = 135,type = 253,
+              flags = <<0,0>>,
+              scale = 0,default = []},
+          #field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "age",origname = "age",
+              charsetnr = 63,length = 10,type = 3,
+              flags = <<0,0>>,
+              scale = 0,default = []},
+          #field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "longtext_col",
+              origname = "longtext_col",charsetnr = 33,
+              length = 4294967295,type = 252,
+              flags = <<16,0>>,
+              scale = 0,default = []}],
+     param_metadata = []},
+ [[1,"Alex",21,null]]}'
+21><span>R.</span>
+[1,"Alex",21,null]
+</pre>
+We pass to connection:execute_statement/4 parameters:
+<dl>
+	<dt>Cntn -</dt><dd>connection tuple,</dd>
+	<dt>H -</dt><dd>statement handle</dd>
+	<dt>[8] -</dt><dd>list of parameter types (in our case 8 - LONGLONG MySQL type)</dd>
+	<dt>[1] -</dt><dd>list of parameter values (in our case 1 - id of desired table record)</dd>
+</dl>
+Result is first record of the table with "Alex" in 'name' field. MySQL server formats a rows of a result set 
+in different ways when responses on query or executes prepared statement.
+To make some order in types of data the Erlang client is doing some convertions of field values. 
+Table below describes a correspondence between types of field defined by DDL statement and types returned by
+server in response for query and requered to set for prepared statement parameters.
+
+<table border="1" >
+	<thead style="color: blue; font-weight: bold;">Table 1. SQL and Erlang types</thead>
+	<tr style="background-color: #00eeee;">
+		<th rowspan="3">DDL type of fields</th>
+		<th colspan="4">MySQL client type</th>
+		<th rowspan="3">Range limits</th>
+	</tr>
+	<tr style="background-color: #88eeaa;">
+		<th colspan="2">Result set of SQL query</th>
+		<th colspan="2">Prepared statement parameters</th>
+	</tr>
+	<tr style="background-color: #00eeee;">
+		<th>SQL type</th><th>Erlang type</th>
+		<th>SQL type</th><th>Erlang type</th>
+	</tr>
+	<tr>
+		<td>NULL (any type)</td><td>@nbsp;</td><td>null::atom()</td><td>MYSQL_TYPE_NULL (NULL)</td>
+		<td>null::atom()</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>decimal</td><td>MYSQL_TYPE_NEWDECIMAL (NEWDECIMAL)</td><td>#mysql_decimal{}</td>
+		<td>NEWDECIMAL,<br/> DECIMAL</td><td>#mysql_decimal{}</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>tinyint</td><td>MYSQL_TYPE_TINY (TINY)</td><td>integer()</td><td>TINY</td><td>integer()</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>smallint</td><td>MYSQL_TYPE_SHORT (SHORT)</td><td>integer()</td><td>TINY, SHORT</td><td>integer()</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>mediumint</td><td>MYSQL_TYPE_INT24 (INT24)</td><td>integer()</td><td>TINY, SHORT, INT24</td><td>integer()</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>int</td><td>MYSQL_TYPE_LONG (LONG)</td><td>integer()</td><td>TINY, SHORT, INT24, LONG</td><td>integer()</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>bigint</td><td>MYSQL_TYPE_LONGLONG (LONGLONG)</td><td>integer()</td><td>TINY, SHORT, INT24, LONG, LONGLONG</td><td>integer()</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>float</td><td>MYSQL_TYPE_FLOAT (FLOAT)</td><td>float()</td><td>FLOAT</td><td>float()</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>double</td><td>MYSQL_TYPE_DOUBLE (DOUBLE)</td><td>float()</td><td>DOUBLE</td><td>float()</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>timestamp</td><td>MYSQL_TYPE_TIMESTAMP (TIMESTAMP)</td><td>#mysql_time{}</td><td>TIMESTAMP</td><td>#mysql_time{}</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>date</td><td>MYSQL_TYPE_DATE (DATE)</td><td>#mysql_time{}</td><td>DATE</td><td>#mysql_time{}</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>time</td><td>MYSQL_TYPE_TIME (TIME)</td><td>#mysql_time{}</td><td>TIME</td><td>#mysql_time{}</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>datetime</td><td>MYSQL_TYPE_DATETIME (DATETIME)</td><td>#mysql_time{}</td><td>DATETIME</td><td>#mysql_time{}</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>year</td><td>MYSQL_TYPE_YEAR (YEAR)</td><td>integer()</td><td>YEAR</td><td>integer()</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>char</td><td>MYSQL_TYPE_STRING (STRING)</td><td>string()</td><td>STRING</td><td>string()</td>
+		<td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>varchar</td><td>MYSQL_TYPE_VAR_STRING (VAR_STRING)</td><td>string()</td>
+		<td>VARCHAR, VAR_STRING</td><td>string()</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>binary</td><td>MYSQL_TYPE_STRING(STRING) [binary]</td><td>binary()</td><td>STRING</td><td>binary()</td>
+		<td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>varbinary</td><td>MYSQL_TYPE_VAR_STRING(VAR_STRING) [binary]</td><td>binary()</td>
+		<td>VARCHAR, VAR_STRING</td><td>binary()</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>enum</td><td>MYSQL_TYPE_STRING(STRING) [enum]</td><td>atom()</td><td>MYSQL_TYPE_ENUM (ENUM)</td><td>atom()</td>
+		<td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>set</td><td>MYSQL_TYPE_STRING(STRING) [set]</td><td>list(atom())</td><td>MYSQL_TYPE_SET (SET)</td><td>list(atom())</td>
+		<td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>bit</td><td>MYSQL_TYPE_BIT(BIT) [unsigned]</td><td>binary()</td><td>BIT</td><td>binary()</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>tinyblob</td>
+		<td rowspan="4">MYSQL_TYPE_BLOB (BLOB)<br/>[binary]</td><td>binary()</td><td>TINY_BLOB</td><td>binary()</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>blob</td>
+		<td>binary()</td><td>MYSQL_TYPE_BLOB (BLOB)</td><td>binary()</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>mediumblob</td>
+		<td>binary()</td><td>MEDIUM_BLOB</td><td>binary()</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>longblob</td>
+		<td>binary()</td><td>LONG_BLOB</td><td>binary()</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>tinytext</td>
+		<td rowspan="4">MYSQL_TYPE_BLOB (BLOB)</td><td>string()</td><td>TINY_BLOB</td><td>string()</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>text</td>
+		<td>string()</td><td>MYSQL_TYPE_BLOB (BLOB)</td><td>string()</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>mediumtext</td>
+		<td>string()</td><td>MYSQL_TYPE_MEDIUM_BLOB (MEDIUM_BLOB)</td><td>string()</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>longtext</td>
+		<td>string()</td><td>MYSQL_TYPE_LONG_BLOB (LONG_BLOB)</td><td>string()</td><td>@nbsp;</td>
+	</tr>
+	<tr>
+		<td>?</td>
+		<td>MYSQL_TYPE_NEWDATE (NEWDATE)</td><td>@nbsp;</td><td>@nbsp;</td>
+		<td>@nbsp;</td>
+		<td>@nbsp;</td>
+	</tr>
+</table>
+
+<h3>Prepared statement cursor and result fetching</h3>
+After a statement is prepared we can execute it under two modes. First kind of execution
+is default and immediately returns a result set of the prepared statement. Second one
+does not return a result set but create a cursor on the server side. To retrieve a data from
+this cursor we can use fetch_statement command like this:
+<pre>
+22><span>`H1 = connection:get_prepared_statement_handle(Cntn, "SELECT * FROM testDB.sample_table WHERE id < ?").'</span>
+2
+23><span>LONGLONG = 8.</span>
+8
+24><span>CURSOR_TYPE_READ_ONLY = 1.</span>
+1
+25><span>{M,_} = connection:execute_statement(Cntn, H1, [LONGLONG], [1], CURSOR_TYPE_READ_ONLY, true).</span>
+`{#metadata{
+     field_count = 4,param_count = 0,server_status = undefined,
+     field_metadata = 
+         [#field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "id",origname = "id",
+              charsetnr = 63,length = 20,type = 8,
+              flags = <<1,0>>,
+              scale = 0,default = []},
+          #field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "name",origname = "name",
+              charsetnr = 33,length = 135,type = 253,
+              flags = <<0,0>>,
+              scale = 0,default = []},
+          #field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "age",origname = "age",
+              charsetnr = 63,length = 10,type = 3,
+              flags = <<0,0>>,
+              scale = 0,default = []},
+          #field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "longtext_col",
+              origname = "longtext_col",charsetnr = 33,
+              length = 4294967295,type = 252,
+              flags = <<16,0>>,
+              scale = 0,default = []}],
+     param_metadata = []},
+ []}'
+26><span>{_,R1} = connection:fetch_statement(Cntn, H1, M, 2).</span>
+`{#metadata{
+     field_count = 4,param_count = 0,
+     server_status = 
+         #server_status{
+             inTransaction = false,autocommit = true,
+             moreResultExists = false,queryNoGoodIndexUsed = false,
+             queryNoIndexUsed = false,cursorExists = true,
+             lastRowSent = false,dbDropped = false,
+             noBackSlashEscapes = false,metadataChanged = false,
+             queryWasSlow = false,psOutParams = false},
+     field_metadata = 
+         [#field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "id",origname = "id",
+              charsetnr = 63,length = 20,type = 8,
+              flags = <<1,0>>,
+              scale = 0,default = []},
+          #field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "name",origname = "name",
+              charsetnr = 33,length = 135,type = 253,
+              flags = <<0,0>>,
+              scale = 0,default = []},
+          #field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "age",origname = "age",
+              charsetnr = 63,length = 10,type = 3,
+              flags = <<0,0>>,
+              scale = 0,default = []},
+          #field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "longtext_col",
+              origname = "longtext_col",charsetnr = 33,
+              length = 4294967295,type = 252,
+              flags = <<16,0>>,
+              scale = 0,default = []}],
+     param_metadata = []},
+ [[1,"Alex",21,null],[2,"John",21,null]]}'
+</pre> 
+First line is a command to prepare a statement with handler H. Second line is a command to execute
+the prepared statement in cursor mode. The command does not return any result but we need
+get a metadata record for the following command. The next line is a fetch command that return 2 
+first rows from the server side cursor. A fetch command returns only binary packets of result set but
+skips field metadata. So we have to pass metadata record as a parameter to fetch command
+due to properly parse rows data.
+  
+<h3>Errors, Exceptions</h3>
+The Erlang MySQL client can detect some errors and throws an exceptions. A record #mysql_error represents
+information about the error. There are a few kind of the errors:
+<dl>
+	<dt>tcp -</dt><dd>This kind of exception is thrown by the client while network or socket error is occured.</dd>
+	<dt>connection -</dt><dd>This concerns server connection errors.</dd>
+	<dt>sqlquery -</dt><dd>Errors arise during execution of SQL query.</dd>
+	<dt>statement -</dt><dd>Prepared statement can prevent an execution of query with wrong set of parameter.</dd>
+	<dt>transaction -</dt><dd>Error during transaction. The exception arises after transaction rollback.</dd>
+</dl>
+Functional programming style does not welcome a using exceptions, so MySQL client uses exception if it can not be avoided,
+Otherwise a functions return #mysql_error{} record if execution is failed.
+
+<h3>Transactions</h3>
+The client has a transaction support. If you need some persistance operations/queries wrap as an one transaction 
+then just define a function that implements this queries. The function accesses only one parameter - Connection object.
+This function has to return #mysql_error{} record if any of wrapped query is failed or any data if all transaction
+query are successful. You need pass this function to my:transaction/2 command. The transaction command has two parameter: 
+first one is a Connection object, second one is a function mentioned above. See example:
+
+<pre>
+27><span>F = fun (C) -> connection:execute_query(C,</span> 
+27><span>"UPDATE testDB.sample_table SET age = age + 1 WHERE id = 1") end.</span>
+`#Fun<erl_eval.6.82930912>'
+28><span>Result = case connection:transaction(Cntn, F) of</span>
+28><span>#mysql_error{} -> io:format("Transaction is failed and rollbacked ~n"), failed;</span>
+28><span>R2 -> R2 end.</span>
+`{#metadata{
+     field_count = 0,param_count = 0,
+     server_status = 
+         #server_status{
+             inTransaction = true,autocommit = true,
+             moreResultExists = false,queryNoGoodIndexUsed = false,
+             queryNoIndexUsed = false,cursorExists = false,
+             lastRowSent = false,dbDropped = false,
+             noBackSlashEscapes = false,metadataChanged = false,
+             queryWasSlow = false,psOutParams = false},
+     field_metadata = [],param_metadata = []},
+ [#ok_packet{
+      affected_rows = 1,insert_id = 0,
+      server_status = 
+          #server_status{
+              inTransaction = true,autocommit = true,
+              moreResultExists = false,queryNoGoodIndexUsed = false,
+              queryNoIndexUsed = false,cursorExists = false,
+              lastRowSent = false,dbDropped = false,
+              noBackSlashEscapes = false,metadataChanged = false,
+              queryWasSlow = false,psOutParams = false},
+      warning_count = 0,
+      message = "(Rows matched: 1  Changed: 1  Warnings: 0"}]}'
+</pre>
+
+connection:transaction/2 function is successfuly completed if the transaction is committed and it returns 
+#mysql_err{} record if the transaction is rollbacked.
+
+Finally we need to return connection to pool and free the resource:
+<pre>
+18> <span>datasource:return(data_source, Cntn).</span>
+ok
+</pre>
+
+<h3>Compression</h3>
+Compression protocol is supported if instance of MySQL supports it. To activate this feature set compress field
+in #client_options record and pass the record to datasource definition when create
+new datasource object. Then established connection allows to talk to
+server with compession. Tips: when we are using compression we win in packets size but lost in processor time. Example of
+compressed connection establishment:
+<pre>
+DS_def_compr = #datasource{
+		host = "localhost", 
+		port = 3306, 
+		database = "testdb", 
+		user = "root", 
+		password = "root", 
+		flags = #client_options{compress=1}
+	},
+	my:new_datasource(datasource_compr, DS_def_compr),
+	Connection = datasource:get_connection(datasource_compr)
+</pre>
+
+<h3>Blob transfer</h3>
+<p>
+MySQL allows keep in blob table fields a huge amount of data: up to 4294967296 (16#100000000) bytes.
+To send a long data to server the MySQL client/server protocol defines SEND_LONG_DATA command. The command 
+is a part of prepared statement execution cycle and can be used only within one.
+</p>
+<p>
+Suppose we have a some table with column of LONGBLOB type and we need to update the field.
+First we have to create prepared statement:
+<pre>
+29><span>Handle = connection:get_prepared_statement_handle(Connection,</span> 
+29><span>"UPDATE some_table SET longtext_col= ? WHERE persist_id = ?").</span>
+3
+</pre>
+After that we can send to server long block of data that has size of 1000000 bytes:
+<pre>
+30><span>`connection:send_statement_long_parameter(Connection, Handle, 0, <<16#AA:8000000>>).'</span>
+ok
+</pre>
+Third parameter of the function is a position number of given prepared statement parameter. 
+We can apply the send_statement_long_parameter/4 a few times and all chunks will be merged in one huge data block.
+Now as we complete sending of statement parameter value to server we can finally execute the statement:
+<pre>
+31><span>LONG_BLOB = 251.</span>
+251
+32><span>connection:execute_statement(Connection, Handle, [LONG_BLOB, LONG], [null, 1]).</span>
+{#metadata{
+     field_count = 0,param_count = 0,
+     server_status = 
+         #server_status{
+             inTransaction = false,autocommit = true,
+             moreResultExists = false,queryNoGoodIndexUsed = false,
+             queryNoIndexUsed = false,cursorExists = false,
+             lastRowSent = false,dbDropped = false,
+             noBackSlashEscapes = false,metadataChanged = false,
+             queryWasSlow = false,psOutParams = false},
+     field_metadata = [],param_metadata = []},
+ [#ok_packet{
+      affected_rows = 1,insert_id = 0,
+      server_status = 
+          #server_status{
+              inTransaction = false,autocommit = true,
+              moreResultExists = false,queryNoGoodIndexUsed = false,
+              queryNoIndexUsed = false,cursorExists = false,
+              lastRowSent = false,dbDropped = false,
+              noBackSlashEscapes = false,metadataChanged = false,
+              queryWasSlow = false,psOutParams = false},
+      warning_count = 1,
+      message = "(Rows matched: 1  Changed: 1  Warnings: 0"}]}
+</pre>
+During execution we do not need to send blob parameter value, because it already is in the server.
+Please, note that MySQL server has limitation to maximum client packet size (max_allowed_packet = 1048576 by default).
+So you can not send chunk of long data more then max_allowed_packet, but you can send this chunks a few times
+as much as needed and server will concatenate them.  
+</p>
+<p>
+Server response has no limitations and we can query table with blob any size. Server will split
+huge packet to standard ones and ErlMySQL client merges them as needed.
+<pre>
+33><span>connection:execute_query(Connection, "SELECT longtext_col FROM some_table WHERE persist_id = 1").</span>
+`{#metadata{
+     field_count = 1,param_count = 0,
+     server_status = 
+         #server_status{
+             inTransaction = false,autocommit = true,
+             moreResultExists = false,queryNoGoodIndexUsed = false,
+             queryNoIndexUsed = false,cursorExists = false,
+             lastRowSent = false,dbDropped = false,
+             noBackSlashEscapes = false,metadataChanged = false,
+             queryWasSlow = false,psOutParams = false},
+     field_metadata = 
+         [#field_metadata{
+              catalog = "def",schema = "testDB",table = "sample_table",
+              origtable = "sample_table",name = "longtext_col",
+              origname = "longtext_col",charsetnr = 33,
+              length = 4294967295,type = 252,
+              flags = <<16,0>>,
+              scale = 0,default = []}],
+     param_metadata = []},
+ [[[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0|...]]]}'
+</pre>
+</p>
+
+@reference [https://sourceforge.net/projects/erlpool] - Erlang resource Pool project is dependence for the MySQL client.
+@reference [http://github.com/Eonblast/Emysql] - other similar project.
+@reference [http://code.google.com/p/erlang-mysql-driver] - one more similar project.
+@reference [http://mysql.timesoft.cc/doc/internals/en/index.html] - description of MySQL client-server low level protocol.
+@reference [http://www.scribd.com/doc/32435818/MySQL-Client-Server-Protocol-Documentation-net-doc-txt] - MySQL Client/Server Protocol documentation.
+@reference [http://erlangcentral.org/wiki/index.php?title=MySQL_client_(driver)] - article on Erlang Central.
+@see my 
+@since 2010-10-08
+@title MySQL client for Erlang.
+@version {@version}
+

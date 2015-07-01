@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ====================================================================== 
+		Dec 1, 2010 3:32:42 PM
+
+		erl.mysql.client    
+
+		Alexei Krasnopolski
+====================================================================== -->
+<project name="erl.mysql.client" default="default">
+	<description>
+		Ant script to run some maintanence tasks:
+			- Erlang unit test suite;
+			- examples
+	  	- debug some modules
+	</description>
+	<!--property environment="env"/-->
+  <property file="${basedir}/build.properties"/>
+
+	<!--=================================
+				target: default
+			=================================-->
+	<target name="default" depends="" description="run test suit (all tests)">
+		<echo>${env.ERL_ROOT}</echo>
+	  <exec executable="${env.ERL_ROOT}/bin/erl" dir="${basedir}/ebin">
+			<arg line="-noshell"/>
+			<!--arg line="-boot start_sasl"/-->
+			<arg line="-s c cd ${basedir}/ebin"/>
+			<arg line="-s eunit test my"/>
+			<arg line="-s init stop"/>
+		</exec> 
+	</target>
+
+	<target name="test-run" depends="" description="run only one test: ">
+		<exec executable="${env.ERL_ROOT}/bin/erl" dir="${basedir}/ebin" output="out.txt">
+			<arg line="-noshell"/>
+			<arg line="-s my_tests tableCreate"/>
+			<arg line="-s init stop"/>
+		</exec> 
+	</target>
+
+	<target name="debug" depends="" description="run one function from module my_debug">
+		<exec executable="${env.ERL_ROOT}/bin/erl" dir="${basedir}/ebin">
+			<arg line="-noshell"/>
+			<arg line="-pa ${basedir}/deps/rsrc_pool/ebin"/>
+			<arg line="-boot start_sasl"/>
+			<!--arg line="-s my_debug checkThrows 1"/-->
+			<arg line="-s my_debug big_packet_test"/>
+			<!--arg line="-s concurrent_connection_tests run_consumer"/-->
+			<arg line="-s init stop"/>
+		</exec> 
+	</target>
+
+  <target name="crash_connection" depends="" description="">
+    <exec executable="${env.ERL_ROOT}/bin/erl" dir="${basedir}/ebin">
+      <arg line="-noshell"/>
+      <arg line="-pa ${basedir}/deps/rsrc_pool/ebin"/>
+      <arg line="-boot start_sasl"/>
+      <arg line="-s run_connection_loop run_consumer"/>
+      <arg line="-s init stop"/>
+    </exec> 
+  </target>
+
+	<target name="example" depends="" description="run example">
+		<exec executable="${env.ERL_ROOT}/bin/erl" dir="${basedir}/ebin">
+			<arg line="-noshell"/>
+			<arg line="-s c cd ${basedir}/ebin"/>
+			<arg line="-s example run"/>
+			<arg line="-s init stop"/>
+		</exec>
+	</target>
+
+</project>
