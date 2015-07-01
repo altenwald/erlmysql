@@ -825,16 +825,11 @@ properly parse rows data.
 
 The Erlang MySQL client can detect some errors and throws an exceptions. A record #mysql_error represents information about the error. There are a few kind of the errors:
 
-**tcp -**
-    This kind of exception is thrown by the client while network or socket error is occured.
-**connection -**
-    This concerns server connection errors.
-**sqlquery -**
-    Errors arise during execution of SQL query.
-**statement -**
-    Prepared statement can prevent an execution of query with wrong set of parameter.
-**transaction -**
-    Error during transaction. The exception arises after transaction rollback.
+* **tcp -**: This kind of exception is thrown by the client while network or socket error is occured.
+* **connection -**: This concerns server connection errors.
+* **sqlquery -**: Errors arise during execution of SQL query.
+* **statement -**: Prepared statement can prevent an execution of query with wrong set of parameter.
+* **transaction -**: Error during transaction. The exception arises after transaction rollback.
 
 Functional programming style does not welcome a using exceptions, so MySQL client uses exception if it can not be avoided, 
 Otherwise a functions return #mysql_error{} record if execution is failed.
